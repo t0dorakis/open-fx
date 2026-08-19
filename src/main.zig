@@ -1,9 +1,13 @@
+// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// the Codex provider is selected here at composition time, and
+// fork builds decline to auto-upgrade themselves.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const io_mod = @import("core/shared/io.zig");
 
-pub const version = "0.0.3-codex";
+pub const version = "0.0.3-codex.1";
 
 const app_lifecycle = @import("core/app/app_lifecycle.zig");
 const auth_runtime = @import("core/auth/auth_runtime.zig");
@@ -123,6 +127,7 @@ const worker_runtime = @import("core/agent/worker_runtime.zig");
 const question_prompt = @import("core/agent/question_prompt.zig");
 const gateway_client = @import("gateway/client.zig");
 const js_host_stream_provider = @import("gateway/js_host_stream_provider.zig");
+const codex_fork = @import("codex/fork.zig");
 const codex_provider = @import("codex/provider.zig");
 const codex_settings = @import("codex/settings.zig");
 const js_host_model_catalog = @import("gateway/js_host_model_catalog.zig");
@@ -635,7 +640,12 @@ const App = struct {
             std.mem.eql(u8, val, "0") or std.ascii.eqlIgnoreCase(val, "false")
         else
             false;
-        if (env_disabled or !auto_upgrade.shouldEnableForCurrentExecutable()) {
+        // A fork build never upgrades itself: the release feed serves upstream
+        // binaries, so an upgrade would quietly replace it with stock fx.
+        if (env_disabled or
+            codex_fork.isForkBuild(version) or
+            !auto_upgrade.shouldEnableForCurrentExecutable())
+        {
             app.auto_upgrade_enabled = false;
         }
         if (comptime !host_profile.auto_upgrade) app.auto_upgrade_enabled = false;
@@ -3950,4 +3960,5 @@ test {
     _ = @import("codex/provider.zig");
     _ = @import("codex/login.zig");
     _ = @import("codex/settings.zig");
+    _ = @import("codex/fork.zig");
 }

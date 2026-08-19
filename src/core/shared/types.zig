@@ -1,3 +1,6 @@
+// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// adds the codex_oauth credential source.
+
 const std = @import("std");
 const text_utils = @import("text_utils.zig");
 

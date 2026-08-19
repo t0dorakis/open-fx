@@ -1,3 +1,7 @@
+// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// loads the Codex credential and places it in the
+// source precedence order.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const debug_trace = @import("../shared/debug_trace.zig");
