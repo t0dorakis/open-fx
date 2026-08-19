@@ -1,4 +1,4 @@
-// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// Modified from vercel-labs/fx (Apache-2.0) by the open-fx fork:
 // adds fx login --codex and fx logout --codex, and makes
 // fx upgrade refuse to run on a fork build.
 
@@ -1345,14 +1345,14 @@ fn runNonInteractiveWithDeps(
                         deps,
                         "upgrade",
                         "fork_build",
-                        "fx-codex does not self-upgrade; rebuild the fork from source",
+                        "open-fx does not self-upgrade; rebuild the fork from source",
                     );
                 } else {
                     try writeStderr(
                         deps,
-                        "fx upgrade: this is the fx-codex fork, and upstream releases do not " ++
+                        "fx upgrade: this is the open-fx fork, and upstream releases do not " ++
                             "include the Codex provider.\nRebuild from source to update: " ++
-                            "https://github.com/t0dorakis/fx\n",
+                            "https://github.com/t0dorakis/open-fx\n",
                     );
                 }
                 return .handled_failure;

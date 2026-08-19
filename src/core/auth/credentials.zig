@@ -1,4 +1,4 @@
-// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// Modified from vercel-labs/fx (Apache-2.0) by the open-fx fork:
 // loads the Codex credential and places it in the
 // source precedence order.
 

@@ -1,4 +1,4 @@
-// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// Modified from vercel-labs/fx (Apache-2.0) by the open-fx fork:
 // the Codex provider is selected here at composition time, and
 // fork builds decline to auto-upgrade themselves.
 
@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const io_mod = @import("core/shared/io.zig");
 
-pub const version = "0.0.4-codex.1";
+pub const version = "0.0.4-openfx.1";
 
 const app_lifecycle = @import("core/app/app_lifecycle.zig");
 const auth_runtime = @import("core/auth/auth_runtime.zig");

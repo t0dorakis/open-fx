@@ -17,6 +17,9 @@ pub const HttpError = error{
 
 /// Product identifier sent to the Codex backend. Deliberately not the official
 /// Codex CLI's user agent: this is a different client and says so.
+///
+/// This is a wire value the backend has been observed to accept, not the
+/// project name, so it does not follow the repository if that is renamed.
 pub fn userAgent() []const u8 {
     return "fx-codex";
 }

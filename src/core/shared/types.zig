@@ -1,4 +1,4 @@
-// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// Modified from vercel-labs/fx (Apache-2.0) by the open-fx fork:
 // adds the codex_oauth credential source.
 
 const std = @import("std");
