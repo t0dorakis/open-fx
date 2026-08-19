@@ -1,118 +1,148 @@
-```
- ⠀⠀⠀⠀⠀⠀⣠⣾⣿⣿⣿⠀⠀⠀⠀⠀⠀⠀⠀
- ⠀⠀⠀⠀⠀⢰⣿⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
- ⠀⠀⠀⣠⣶⣿⣿⣷⣶⡶⣶⣶⣆⠀⠀⠀⣴⣶⣶⠆
- ⠀⠀⠀⠉⢹⣿⣿⠉⠉⠀⠘⢿⣿⣧⣀⣾⣿⡿⠃⠀             Tiny, open, embeddable, native coding agent.
- ⠀⠀⠀⠀⣼⣿⡏⠀⠀⠀⠀⠀⠻⣿⣿⣿⠟⠀⠀⠀
- ⠀⠀⠀⢀⣿⣿⠃⠀⠀⠀⠀⢠⣦⠘⢿⣿⣷⡀⠀⠀             curl -fsSL https://fx.sh/setup.sh | bash
- ⠀⠀⠀⣸⣿⡟⠀⠀⠀⠀⣰⣿⣿⠗⠀⠻⣿⣿⣄⠀
- ⠀⠀⠀⣿⣿⠇⠀⠀⠀⠾⠿⠿⠋⠀⠀⠀⠘⠿⠿⠦             ⚠ Status: Experimental. Use at your own risk.
-  ⠀⣸⣿⡿⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
- ⣿⣿⣿⠟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-```
+# fx-codex
 
-fx is a coding agent harness and CLI written in Zig, optimized for research and embeddability as part of larger systems.
+A fork of [vercel-labs/fx](https://github.com/vercel-labs/fx) that runs the agent on a
+**ChatGPT/Codex subscription** instead of the Vercel AI Gateway.
 
-It focuses on minimalism and performance across the board, from system prompt design to its tools, feature set, and 7.8 MiB binary.
+Everything else is upstream fx. The Codex support is additive: a new `src/codex/` provider plus
+small edits to five upstream files, so the fork stays cheap to rebase onto new fx releases.
 
-For end users, its CLI output style and form factor aim to be closer to a Unix shell than a heavy "IDE in the terminal" TUI.
+## Read this first
 
-It's open source (Apache-2.0), model-agnostic, and suitable for both local and cloud inference.
+This signs in with the OAuth client the Codex CLI uses and calls the Codex backend from a different
+program. That is **not an OpenAI-sanctioned integration path**, and the consequences land on your
+account, not on this repository:
+
+- OpenAI can rate-limit, block, or ban accounts for out-of-client use. Nobody here can appeal that
+  for you.
+- The client id and backend contract are not a published API. They can change or be revoked without
+  notice, and when they do this fork simply stops working.
+- Sign-in binds to port `1455`, the same port the Codex CLI uses, so the two cannot sign in at once.
+
+If that is not a trade you want to make, use upstream fx. It is the better-supported tool.
 
 ## Install
 
-```bash
-curl -fsSL https://fx.sh/setup.sh | bash
-```
-
-## Run fx
-
-To get started, sign in with Vercel:
+Requires [Zig 0.16.0+](https://ziglang.org/download/):
 
 ```bash
-fx login
+git clone https://github.com/t0dorakis/fx.git fx-codex
+cd fx-codex
+zig build -Doptimize=ReleaseSafe
 ```
 
-Or add an AI Gateway API key:
+Prebuilt binaries are attached to [releases](https://github.com/t0dorakis/fx/releases). They are
+unsigned, so macOS quarantines them on download:
 
 ```bash
-fx setup
+xattr -d com.apple.quarantine ./fx
+codesign --force --sign - ./fx
 ```
 
-Run fx from a project:
+To put it on `PATH` in place of fx, remove the old binary before copying rather than overwriting it.
+Overwriting a running binary's inode invalidates the cached code signature, and macOS then kills it
+with `SIGKILL` on the next launch:
 
 ```bash
-cd your_project
-fx
+rm -f ~/.local/bin/fx
+cp zig-out/bin/fx ~/.local/bin/fx
+codesign --force --sign - ~/.local/bin/fx
 ```
 
-The current directory becomes the primary workspace. Enter a prompt, or run `/help` to browse interactive commands.
-
-List saved sessions with `fx sessions`. Resume the latest session for the current workspace, or select an exact session ID, through the same command group:
+## Use
 
 ```bash
-fx session resume last
-fx session resume --id <id>
+fx login --codex     # browser sign-in against auth.openai.com
+fx status            # should report: auth=Codex (ChatGPT) login
+fx ask "explain this repository"
 ```
 
-Each interactive session names its terminal tab. The title prefers the session name, falls back to the workspace name, and keeps the active model as secondary context. Renaming or resuming a session updates the tab, and exiting clears the fx-owned title. Noninteractive commands do not emit terminal-title controls.
+`fx login --codex` also records `credential_source: codex_oauth` in `~/.fx/settings.json`. A Codex
+token is not a Gateway credential, so it does not win fx's normal credential precedence and has to
+be selected explicitly; the login command does that for you.
 
-Run `/feedback` to open the feedback form at `fx.sh/feedback`. It does not create a diagnostic or change the clipboard.
+Credentials are stored in `~/.fx/codex-auth.json`, mode `0600`. The refresh token rotates on every
+use, so refreshes are single-flight and the new credential is written to disk before it is handed
+out.
 
-Run `/trace` to create a private Markdown diagnostic with logs, session context, runtime state, permissions, and recent activity. On macOS, fx copies the `.md` file to the clipboard; on other platforms, it saves the file and prints its path. Review and redact the trace before sharing it.
+`fx models` lists the live Codex catalog and `fx credits` reports your Codex rate-limit window in
+place of a credit balance.
 
-Use `fx ask` for a single request:
+### Switching back
 
 ```bash
-fx ask "explain the changes in this repository"
+fx logout --codex
 ```
 
-fx starts in `auto` permission mode. Routine understood development actions run directly; unresolved sensitive actions receive one bounded automatic review. A blocked action may return an exact approval request that the agent can send to fx's real permission screen. Ordinary question text never grants permission. See [Permissions](https://fx.sh/docs/configure-fx/permissions) for other modes and persistent rules.
+That deletes the credential and clears `credential_source`, leaving fx on the Gateway with your
+Vercel login intact. Both credentials can coexist; only the setting decides which is used.
 
-JSON and quiet requests stay noninteractive by default. Add `--prompt-permissions` to allow the existing Y/N approval prompt when stdin is a TTY. Prompt text is written to stderr, so JSON stdout stays parseable and quiet stdout stays empty. Piped or redirected stdin remains noninteractive and fails instead of waiting for approval.
+## Verified and not verified
 
-Inside a saved session, `/permissions remember <allow|deny> <tool-name> <arguments-json>` stores an exact confirmed rule without running the action. `/permissions` lists stable rule IDs, and `/permissions revoke <rule-id>` removes a stored rule even when its original workspace or file state has changed.
+Streaming text, tool calls, reasoning replay, the model catalog, rate-limit reporting, browser
+sign-in, and token refresh are exercised against captured live transcripts in
+`src/codex/testdata/` or against the real backend.
 
-## Embed fx
+**Vision (image input) and structured output have never been run against Codex.** They are
+translated, not tested. Expect to find bugs there first.
 
-fx builds as a native binary or WebAssembly. Applications embedding fx can provide network transport, session storage, configuration, permission handling, and terminal I/O.
+## How it works
 
-| Surface | Use |
+`src/codex/provider.zig` implements fx's own `gateway_provider.Provider` interface, so the Codex
+path is a peer of the Gateway path rather than a proxy in front of it. `src/main.zig` picks between
+them at startup from `credential_source`.
+
+The translation layer maps fx's AI SDK call options onto the Codex Responses API
+(`chatgpt.com/backend-api/codex/responses`, `store: false`, encrypted reasoning included) and maps
+the `response.*` SSE events back to Gateway stream parts.
+
+fx's message history has no slot for provider reasoning, so the chain of thought behind a tool call
+would be lost at the end of each turn. `src/codex/runtime.zig` keeps encrypted reasoning keyed by
+the tool call it preceded and splices it back into later turns, which keeps the prompt cache warm.
+It is bounded at 512 entries.
+
+### Automatic upgrades are disabled
+
+The fork reports its version as `0.0.3-codex.N`, and any build carrying that marker refuses both
+background auto-upgrade and `fx upgrade`. Upstream's release feed serves upstream binaries, and
+installing one would silently replace this fork with stock fx and remove Codex support. Update by
+rebuilding from source.
+
+## Staying current with upstream
+
+```bash
+git remote add upstream https://github.com/vercel-labs/fx.git
+git fetch upstream
+git rebase upstream/main
+```
+
+`main` tracks upstream unchanged; the fork lives on `codex-provider`. Conflicts should be limited to
+the five files that carry a `Modified from vercel-labs/fx` notice at the top:
+
+| File | Change |
 | --- | --- |
-| `fx acp` | Connect the native agent to editors and other Agent Client Protocol clients. |
-| `createFxAgent()` | Embed the agent core in a JavaScript host with `fx-core.wasm`. |
-| `createFxTerminal()` | Embed the interactive terminal with `fx-term.wasm`. |
+| `src/main.zig` | provider selection, fork build identity |
+| `src/core/cli/cli_surface.zig` | `login --codex`, `logout --codex`, upgrade refusal |
+| `src/core/auth/credentials.zig` | loads and ranks the Codex credential |
+| `src/core/auth/auth_runtime.zig` | adds `codex_oauth` to the source order |
+| `src/core/shared/types.zig` | adds the `codex_oauth` enum member |
 
-The WebAssembly SDK is experimental. See the [WebAssembly SDK](sdk/README.md) and [ACP documentation](https://fx.sh/docs/using-fx/acp).
+Everything else is under `src/codex/`, which upstream never touches.
 
-## Extend fx
-
-Add reusable instructions with [skills](https://fx.sh/docs/capabilities/skills), connect external tools through [MCP](https://fx.sh/docs/capabilities/mcp), or delegate independent work to [subagents](https://fx.sh/docs/capabilities/subagents). Project instruction files may link within their scope, and read-only workspace or compatibility skill directories may link within their owning workspace or home; managed skills, `SKILL.md` files, resources, and escaping links remain no-follow. `fx status` and `fx doctor` report an invalid trusted MCP profile without starting its servers.
+CI is not enabled on this fork. Run `zig build test` before pushing.
 
 ## Documentation
 
-Read the [fx documentation](https://fx.sh/docs).
-
-## Build from source
-
-Building fx requires [Zig 0.16.0+](https://ziglang.org/download/):
-
-```bash
-git clone https://github.com/vercel-labs/fx.git
-cd fx
-zig build -Doptimize=ReleaseSafe
-./zig-out/bin/fx
-```
-
-Run the test suite with `zig build test`. See [CONTRIBUTING.md](CONTRIBUTING.md) for development and contribution guidelines.
+For fx itself, read the [upstream README](https://github.com/vercel-labs/fx#readme) and the
+[fx documentation](https://fx.sh/docs). This fork changes how fx authenticates and which backend it
+talks to, nothing else.
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE), inherited from upstream fx. Modified files carry a change notice as the
+license requires.
 
 Third-party licenses and attributions are listed in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Interface sounds by
+[cuelume](https://github.com/Danilaa1/cuelume).
 
-## Credits
-
-Interface sounds by [cuelume](https://github.com/Danilaa1/cuelume).
+Not affiliated with Vercel or OpenAI.
