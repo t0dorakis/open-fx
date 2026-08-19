@@ -1,3 +1,7 @@
+// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// adds fx login --codex and fx logout --codex, and makes
+// fx upgrade refuse to run on a fork build.
+
 const std = @import("std");
 const builtin = @import("builtin");
 const io_mod = @import("../shared/io.zig");
@@ -8,6 +12,7 @@ const acp_runner = @import("acp_runner.zig");
 const cli_ask = @import("cli_ask.zig");
 const cli_replay = @import("cli_replay.zig");
 const codex_auth = @import("../../codex/auth.zig");
+const codex_fork = @import("../../codex/fork.zig");
 const codex_jwt = @import("../../codex/jwt.zig");
 const codex_login = @import("../../codex/login.zig");
 const codex_settings = @import("../../codex/settings.zig");
@@ -1329,6 +1334,29 @@ fn runNonInteractiveWithDeps(
                 try writeUsageOrJsonError(alloc, cfg.command_catalog, deps, .upgrade, "upgrade", err, rest);
                 return .handled_failure;
             };
+
+            // Upstream publishes upstream binaries. Running the upgrade would
+            // hand back a stock fx with no Codex provider, so refuse rather
+            // than uninstall the fork on the user's behalf.
+            if (codex_fork.isForkBuild(cfg.version)) {
+                if (opts.format == .json) {
+                    try writeJsonCommandFailureCode(
+                        alloc,
+                        deps,
+                        "upgrade",
+                        "fork_build",
+                        "fx-codex does not self-upgrade; rebuild the fork from source",
+                    );
+                } else {
+                    try writeStderr(
+                        deps,
+                        "fx upgrade: this is the fx-codex fork, and upstream releases do not " ++
+                            "include the Codex provider.\nRebuild from source to update: " ++
+                            "https://github.com/t0dorakis/fx\n",
+                    );
+                }
+                return .handled_failure;
+            }
 
             var startup = deps.load_startup_state_without_credentials(
                 alloc,
