@@ -23,7 +23,16 @@ const credential_source_order = [_]credentials.Source{
     .ai_gateway_api_key,
     .fx_login,
     .stored_key,
+    .codex_oauth,
 };
+
+comptime {
+    // The picker walks SourceSet.full and looks each member up in this order,
+    // so a source missing here reads back as null at runtime.
+    if (credential_source_order.len != @typeInfo(credentials.Source).@"enum".fields.len) {
+        @compileError("credential_source_order must list every credentials.Source");
+    }
+}
 
 const SourceProbeFn = *const fn (?*anyopaque, Allocator, credentials.Source) anyerror!bool;
 const CredentialLoaderFn = *const fn (?*anyopaque, Allocator, credentials.Source) anyerror!?credentials.Credential;

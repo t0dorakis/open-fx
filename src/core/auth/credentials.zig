@@ -5,6 +5,7 @@ const host = @import("../hosts/host.zig");
 const io_mod = @import("../shared/io.zig");
 const oauth = @import("oauth.zig");
 const oauth_session = @import("oauth_session.zig");
+const codex_auth = @import("../../codex/auth.zig");
 const oauth_transport = @import("oauth_transport.zig");
 const secret = @import("secret.zig");
 const types = @import("../shared/types.zig");
@@ -35,6 +36,7 @@ pub const CatalogAuthenticatedSource = enum {
     ai_gateway_api_key,
     fx_login,
     stored_key,
+    codex_oauth,
 
     fn credentialSource(self: CatalogAuthenticatedSource) Source {
         return switch (self) {
@@ -42,6 +44,7 @@ pub const CatalogAuthenticatedSource = enum {
             .ai_gateway_api_key => .ai_gateway_api_key,
             .fx_login => .fx_login,
             .stored_key => .stored_key,
+            .codex_oauth => .codex_oauth,
         };
     }
 };
@@ -133,6 +136,7 @@ pub fn catalogAccessForCredential(
         .vercel_oidc_token => .vercel_oidc_token,
         .ai_gateway_api_key => .ai_gateway_api_key,
         .stored_key => .stored_key,
+        .codex_oauth => .codex_oauth,
         .fx_login => blk: {
             const team = team_context orelse
                 return .{ .public_only = .fx_login_team_required };
@@ -284,6 +288,7 @@ pub fn loadSource(
         .ai_gateway_api_key => loadEnvCredential(alloc, "AI_GATEWAY_API_KEY", source),
         .fx_login => loadFxLoginCredential(alloc, transport),
         .stored_key => loadStoredKeyCredential(alloc, secret_store),
+        .codex_oauth => loadCodexCredential(alloc, transport),
     };
 }
 
@@ -305,6 +310,17 @@ pub fn sourceExists(
             };
             var session = loaded orelse break :blk false;
             defer session.deinit(alloc);
+            break :blk true;
+        },
+        .codex_oauth => blk: {
+            var credential = codex_auth.load(alloc) catch |err| switch (err) {
+                error.OutOfMemory => return err,
+                else => {
+                    debug_trace.logf("auth", "source probe failed source=codex_oauth err={s}", .{@errorName(err)});
+                    break :blk false;
+                },
+            } orelse break :blk false;
+            credential.deinit(alloc);
             break :blk true;
         },
         .stored_key => blk: {
@@ -332,6 +348,21 @@ fn loadEnvCredential(
     return .{
         .token = try alloc.dupe(u8, value),
         .source = source,
+    };
+}
+
+/// Loads the Codex credential, refreshing it first when it is inside the
+/// refresh window. Refresh is serialised by a file lock inside codex_auth,
+/// because the refresh token rotates and concurrent refreshes would race.
+fn loadCodexCredential(
+    alloc: std.mem.Allocator,
+    transport: oauth_transport.Provider,
+) !?Credential {
+    var credential = (try codex_auth.currentCredential(alloc, transport)) orelse return null;
+    defer credential.deinit(alloc);
+    return .{
+        .token = try alloc.dupe(u8, credential.access_token),
+        .source = .codex_oauth,
     };
 }
 
@@ -471,6 +502,7 @@ pub fn sourceLabel(source: Source) []const u8 {
         .ai_gateway_api_key => "AI_GATEWAY_API_KEY",
         .fx_login => "fx login",
         .stored_key => "stored API key (" ++ stored_key_backend_label ++ ")",
+        .codex_oauth => "Codex (ChatGPT) login",
     };
 }
 
