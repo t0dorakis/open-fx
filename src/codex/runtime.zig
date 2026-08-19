@@ -93,14 +93,21 @@ pub const Runtime = struct {
         }
     }
 
-    /// Returns the stored reasoning JSON for a call, valid until the next
-    /// mutation of this runtime.
-    pub fn lookupReasoning(self: *Runtime, call_id: []const u8) ?[]const u8 {
+    /// Returns a copy of the stored reasoning JSON for a call, owned by the
+    /// caller.
+    ///
+    /// A copy and not a pointer into the store: this runtime is shared by every
+    /// agent in the process, and subagents stream in parallel. A borrowed slice
+    /// stays valid only until some other thread evicts or replaces that entry,
+    /// and the borrower would then splice freed memory into its next request.
+    /// Holding the lock across the caller's use is not an option either, since
+    /// the caller is serialising a whole request while it reads.
+    pub fn lookupReasoningAlloc(self: *Runtime, alloc: Allocator, call_id: []const u8) ?[]u8 {
         const io = io_mod.getIo();
         self.mutex.lockUncancelable(io);
         defer self.mutex.unlock(io);
         const index = self.findIndex(call_id) orelse return null;
-        return self.reasoning.items[index].items_json;
+        return alloc.dupe(u8, self.reasoning.items[index].items_json) catch null;
     }
 
     fn findIndex(self: *Runtime, call_id: []const u8) ?usize {
@@ -231,8 +238,10 @@ test "reasoning round trips by call id" {
     defer runtime.deinit();
 
     runtime.recordReasoning(alloc, "call_1", "[{\"type\":\"reasoning\"}]");
-    try testing.expectEqualStrings("[{\"type\":\"reasoning\"}]", runtime.lookupReasoning("call_1").?);
-    try testing.expect(runtime.lookupReasoning("call_2") == null);
+    const found = runtime.lookupReasoningAlloc(alloc, "call_1").?;
+    defer alloc.free(found);
+    try testing.expectEqualStrings("[{\"type\":\"reasoning\"}]", found);
+    try testing.expect(runtime.lookupReasoningAlloc(alloc, "call_2") == null);
 }
 
 test "recording the same call twice replaces rather than duplicates" {
@@ -242,7 +251,9 @@ test "recording the same call twice replaces rather than duplicates" {
 
     runtime.recordReasoning(alloc, "call_1", "[1]");
     runtime.recordReasoning(alloc, "call_1", "[2]");
-    try testing.expectEqualStrings("[2]", runtime.lookupReasoning("call_1").?);
+    const replaced = runtime.lookupReasoningAlloc(alloc, "call_1").?;
+    defer alloc.free(replaced);
+    try testing.expectEqualStrings("[2]", replaced);
     try testing.expectEqual(@as(usize, 1), runtime.reasoning.items.len);
 }
 
@@ -269,8 +280,10 @@ test "the store stays bounded so a long session cannot grow without limit" {
     }
     try testing.expectEqual(max_reasoning_entries, runtime.reasoning.items.len);
     // The oldest were evicted; the newest survive.
-    try testing.expect(runtime.lookupReasoning("call_0") == null);
-    try testing.expect(runtime.lookupReasoning("call_521") != null);
+    try testing.expect(runtime.lookupReasoningAlloc(alloc, "call_0") == null);
+    const newest = runtime.lookupReasoningAlloc(alloc, "call_521").?;
+    defer alloc.free(newest);
+    try testing.expectEqualStrings("[1]", newest);
 }
 
 test "rate limit starts unknown" {

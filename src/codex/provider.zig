@@ -66,8 +66,8 @@ fn resolveChatUrl(_: ?*anyopaque, _: []const u8) []const u8 {
 // Agent stream
 // ---------------------------------------------------------------------------
 
-fn lookupReasoning(_: ?*anyopaque, call_id: []const u8) ?[]const u8 {
-    return runtime.lookupReasoning(call_id);
+fn lookupReasoning(_: ?*anyopaque, alloc: Allocator, call_id: []const u8) ?[]u8 {
+    return runtime.lookupReasoningAlloc(alloc, call_id);
 }
 
 fn recordReasoning(raw: ?*anyopaque, call_id: []const u8, items_json: []const u8) void {
