@@ -3981,4 +3981,5 @@ test {
     _ = @import("codex/runtime.zig");
     _ = @import("codex/credits.zig");
     _ = @import("codex/provider.zig");
+    _ = @import("codex/login.zig");
 }
