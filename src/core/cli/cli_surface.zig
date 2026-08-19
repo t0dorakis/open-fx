@@ -7,6 +7,9 @@ const background_store = @import("../background/background_store.zig");
 const acp_runner = @import("acp_runner.zig");
 const cli_ask = @import("cli_ask.zig");
 const cli_replay = @import("cli_replay.zig");
+const codex_auth = @import("../../codex/auth.zig");
+const codex_jwt = @import("../../codex/jwt.zig");
+const codex_login = @import("../../codex/login.zig");
 const command_specs = @import("../slash_commands/command_specs.zig");
 const collections = @import("../shared/collections.zig");
 const config_runtime = @import("../config/config_runtime.zig");
@@ -723,8 +726,11 @@ fn runNonInteractiveWithDeps(
         .pr => |rest| return runGithubWorkflow(alloc, rest, cfg, global_args.modifiers, deps, .pull_request),
         .issue => |rest| return runGithubWorkflow(alloc, rest, cfg, global_args.modifiers, deps, .issue),
         .login => |rest| {
+            if (rest.len == 1 and std.mem.eql(u8, rest[0], "--codex")) {
+                return runCodexLogin(alloc, cfg, deps);
+            }
             if (rest.len != 0) {
-                try writeStderr(deps, "usage: fx login\n");
+                try writeStderr(deps, "usage: fx login [--codex]\n");
                 return .handled_failure;
             }
             login_flow.runLogin(
@@ -744,8 +750,11 @@ fn runNonInteractiveWithDeps(
             return .handled_success;
         },
         .logout => |rest| {
+            if (rest.len == 1 and std.mem.eql(u8, rest[0], "--codex")) {
+                return runCodexLogout(deps);
+            }
             if (rest.len != 0) {
-                try writeStderr(deps, "usage: fx logout\n");
+                try writeStderr(deps, "usage: fx logout [--codex]\n");
                 return .handled_failure;
             }
             const result = login_flow.logout(alloc, cfg.gateway_provider.oauth_transport) catch |err| switch (err) {
@@ -1403,6 +1412,70 @@ fn writeTopLevelHelp(
         .stdout => try writeStdout(deps, text),
         .stderr => try writeStderr(deps, text),
     }
+}
+
+/// Signs in to Codex and stores the credential next to fx's own.
+///
+/// Kept separate from `fx login` rather than folded into it: the two produce
+/// different credentials for different backends, and conflating them would make
+/// it ambiguous which one a bare `fx login` refreshed.
+fn runCodexLogin(alloc: Allocator, cfg: Config, deps: RunDeps) !RunResult {
+    try writeStdout(deps, "Opening your browser to sign in to Codex. Waiting on http://localhost:1455 ...\n");
+    var credential = codex_login.runBrowserLogin(
+        alloc,
+        cfg.gateway_provider.oauth_transport,
+        cfg.url_opener,
+    ) catch |err| {
+        const message = switch (err) {
+            error.CallbackPortUnavailable => "fx login --codex: port 1455 is in use; close the other sign-in and retry\n",
+            error.StateMismatch => "fx login --codex: the callback did not match this sign-in attempt\n",
+            error.UnsupportedPlatform => "fx login --codex: browser sign-in is not supported on this platform\n",
+            error.MalformedCredential => "fx login --codex: the account has no Codex access\n",
+            else => "fx login --codex: failed to sign in\n",
+        };
+        try writeStderr(deps, message);
+        return .handled_failure;
+    };
+    defer credential.deinit(alloc);
+
+    codex_auth.save(alloc, credential) catch {
+        try writeStderr(deps, "fx login --codex: signed in but could not save the credential\n");
+        return .handled_failure;
+    };
+
+    var summary = codex_jwt.accountSummaryAlloc(alloc, credential.access_token) catch
+        codex_jwt.AccountSummary{};
+    defer summary.deinit(alloc);
+
+    try writeStdout(deps, "Signed in to Codex.\n");
+    if (summary.plan) |plan| {
+        const line = try std.fmt.allocPrint(alloc, "plan: {s}\n", .{plan});
+        defer alloc.free(line);
+        try writeStdout(deps, line);
+    }
+    try writeStdout(
+        deps,
+        "Set \"credential_source\": \"codex_oauth\" in ~/.fx/settings.json to use it.\n",
+    );
+    return .handled_success;
+}
+
+fn runCodexLogout(deps: RunDeps) !RunResult {
+    var mutation = codex_auth.beginMutation() catch {
+        try writeStderr(deps, "fx logout --codex: could not open the profile directory\n");
+        return .handled_failure;
+    };
+    defer mutation.deinit();
+
+    const outcome = mutation.delete() catch {
+        try writeStderr(deps, "fx logout --codex: failed to remove the stored credential\n");
+        return .handled_failure;
+    };
+    try writeStdout(deps, switch (outcome) {
+        .deleted, .deleted_not_durable => "Removed the stored Codex credential.\n",
+        .missing => "No stored Codex credential.\n",
+    });
+    return .handled_success;
 }
 
 fn runGithubWorkflow(
