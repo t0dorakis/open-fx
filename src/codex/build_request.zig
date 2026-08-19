@@ -27,10 +27,12 @@ pub const Options = struct {
 /// the model re-deriving the same chain on every follow-up turn.
 pub const ReasoningReplay = struct {
     context: ?*anyopaque = null,
-    lookup_fn: *const fn (?*anyopaque, call_id: []const u8) ?[]const u8,
+    lookup_fn: *const fn (?*anyopaque, alloc: Allocator, call_id: []const u8) ?[]u8,
 
-    pub fn lookup(self: ReasoningReplay, call_id: []const u8) ?[]const u8 {
-        return self.lookup_fn(self.context, call_id);
+    /// The result is owned by the caller. See `codex.runtime.lookupReasoningAlloc`
+    /// for why this cannot borrow from the store.
+    pub fn lookupAlloc(self: ReasoningReplay, alloc: Allocator, call_id: []const u8) ?[]u8 {
+        return self.lookup_fn(self.context, alloc, call_id);
     }
 };
 
@@ -234,7 +236,6 @@ fn writeAssistantMessage(
     message: types.ChatMessage,
     options: Options,
 ) !void {
-    _ = alloc;
     if (message.content) |content| {
         if (content.len > 0) {
             try comma(writer, wrote_any);
@@ -246,7 +247,8 @@ fn writeAssistantMessage(
 
     for (message.tool_calls) |call| {
         if (options.reasoning_replay) |replay| {
-            if (replay.lookup(call.id)) |items_json| {
+            if (replay.lookupAlloc(alloc, call.id)) |items_json| {
+                defer alloc.free(items_json);
                 // Already a JSON array of reasoning items; splice it in ahead of
                 // the call it belongs to.
                 const trimmed = std.mem.trim(u8, items_json, " \n\r\t");
@@ -593,9 +595,9 @@ test "max output tokens is forwarded when set" {
 test "encrypted reasoning is replayed immediately before its tool call" {
     const alloc = testing.allocator;
     const Replay = struct {
-        fn lookup(_: ?*anyopaque, call_id: []const u8) ?[]const u8 {
+        fn lookup(_: ?*anyopaque, gpa: Allocator, call_id: []const u8) ?[]u8 {
             if (std.mem.eql(u8, call_id, "call_1")) {
-                return "[{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"abc\"}]";
+                return gpa.dupe(u8, "[{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"abc\"}]") catch null;
             }
             return null;
         }
