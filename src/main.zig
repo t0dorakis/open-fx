@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 const build_options = @import("build_options");
 const io_mod = @import("core/shared/io.zig");
 
-pub const version = "0.0.3";
+pub const version = "0.0.3-codex";
 
 const app_lifecycle = @import("core/app/app_lifecycle.zig");
 const auth_runtime = @import("core/auth/auth_runtime.zig");
@@ -124,6 +124,7 @@ const question_prompt = @import("core/agent/question_prompt.zig");
 const gateway_client = @import("gateway/client.zig");
 const js_host_stream_provider = @import("gateway/js_host_stream_provider.zig");
 const codex_provider = @import("codex/provider.zig");
+const codex_settings = @import("codex/settings.zig");
 const js_host_model_catalog = @import("gateway/js_host_model_catalog.zig");
 const url_opener = @import("core/hosts/url_opener.zig");
 const event_loop = @import("ui/event_loop.zig");
@@ -3214,41 +3215,7 @@ fn resolveCodexSelection() bool {
     // loader, because merging needs a workspace root and this runs before one is
     // resolved. credential_source is profile-owned anyway: project .fx.json
     // values for it are discarded before parsing, so there is nothing to merge.
-    return profileCredentialSourceIsCodex();
-}
-
-fn profileCredentialSourceIsCodex() bool {
-    const alloc = std.heap.c_allocator;
-    const home = io_mod.getenv("HOME") orelse return false;
-
-    var home_dir = std.Io.Dir.openDirAbsolute(io_mod.getIo(), home, .{ .iterate = true }) catch
-        return false;
-    defer home_dir.close(io_mod.getIo());
-
-    var fx_dir = home_dir.openDir(io_mod.getIo(), profile_paths.root_dir_name, .{
-        .iterate = true,
-        .follow_symlinks = false,
-    }) catch return false;
-    defer fx_dir.close(io_mod.getIo());
-
-    var file = fx_dir.openFile(io_mod.getIo(), "settings.json", .{
-        .mode = .read_only,
-        .allow_directory = false,
-        .resolve_beneath = true,
-    }) catch return false;
-    defer file.close(io_mod.getIo());
-
-    const bytes = io_mod.readFileToEnd(alloc, &file, 1024 * 1024) catch return false;
-    defer alloc.free(bytes);
-
-    var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch return false;
-    defer parsed.deinit();
-    if (parsed.value != .object) return false;
-
-    const value = parsed.value.object.get("credential_source") orelse return false;
-    if (value != .string) return false;
-    const source = types.parseCredentialSource(value.string) orelse return false;
-    return source == .codex_oauth;
+    return codex_settings.codexSelectedInProfile();
 }
 
 fn selectedGatewayProvider() gateway_provider.Provider {
@@ -3982,4 +3949,5 @@ test {
     _ = @import("codex/credits.zig");
     _ = @import("codex/provider.zig");
     _ = @import("codex/login.zig");
+    _ = @import("codex/settings.zig");
 }
