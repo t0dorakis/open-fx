@@ -62,7 +62,9 @@ be selected explicitly; the login command does that for you.
 
 Credentials are stored in `~/.fx/codex-auth.json`, mode `0600`. The refresh token rotates on every
 use, so refreshes are single-flight and the new credential is written to disk before it is handed
-out.
+out. `fx status` reports `auth_refreshable=false` for this source, which is accurate about fx's own
+refresher and misleading about your token: refresh happens inside the Codex provider ahead of every
+request, not through fx's Vercel OAuth path.
 
 `fx models` lists the live Codex catalog and `fx credits` reports your Codex rate-limit window in
 place of a credit balance.
