@@ -92,6 +92,9 @@ pub const CredentialSource = enum {
     ai_gateway_api_key,
     fx_login,
     stored_key,
+    /// ChatGPT OAuth for the Codex backend. Selecting it also selects the Codex
+    /// provider, because the token is not a Gateway credential.
+    codex_oauth,
 };
 
 pub fn parseCredentialSource(text: []const u8) ?CredentialSource {

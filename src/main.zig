@@ -77,6 +77,7 @@ const hooks = @import("core/hooks/hooks.zig");
 const github_publish = @import("core/github/github_publish.zig");
 const subagent_domain = @import("core/subagent/domain.zig");
 const subagent_execution = @import("core/subagent/execution.zig");
+const profile_paths = @import("core/shared/profile_paths.zig");
 const types = @import("core/shared/types.zig");
 const image_attachments = @import("core/images/image_attachments.zig");
 const permissions = @import("core/permissions/permissions.zig");
@@ -123,6 +124,7 @@ const worker_runtime = @import("core/agent/worker_runtime.zig");
 const question_prompt = @import("core/agent/question_prompt.zig");
 const gateway_client = @import("gateway/client.zig");
 const js_host_stream_provider = @import("gateway/js_host_stream_provider.zig");
+const codex_provider = @import("codex/provider.zig");
 const js_host_model_catalog = @import("gateway/js_host_model_catalog.zig");
 const url_opener = @import("core/hosts/url_opener.zig");
 const event_loop = @import("ui/event_loop.zig");
@@ -424,14 +426,14 @@ const App = struct {
     }
 
     pub fn creditsProvider(_: *const Self) gateway_provider.CreditsProvider {
-        return builtin_gateway.credits_provider;
+        return selectedGatewayProvider().credits;
     }
 
     pub fn agentStreamProvider(_: *const Self) agent_stream_provider.Provider {
         return if (comptime host_target.is_wasm)
             js_host_stream_provider.provider()
         else
-            builtin_gateway.agent_stream_provider;
+            selectedGatewayProvider().agent_stream;
     }
 
     pub fn cooperativeTransportPulse(self: *Self) !void {
@@ -597,7 +599,7 @@ const App = struct {
         try BootstrapAppRuntime.bootstrap(
             &app,
             footer_rows,
-            builtin_gateway.default_model,
+            selectedDefaultModel(),
             default_max_agent_steps,
             handle_sigwinch,
             launch.record_requested,
@@ -1686,7 +1688,7 @@ const App = struct {
     pub fn fetchModelIds(self: *App) !std.ArrayList([]u8) {
         return AgentAppRuntime.fetchModelIds(
             self,
-            if (comptime host_target.is_wasm) js_host_model_catalog.provider else builtin_gateway.model_catalog_provider,
+            if (comptime host_target.is_wasm) js_host_model_catalog.provider else selectedGatewayProvider().model_catalog,
             builtin_gateway.models_path,
         );
     }
@@ -1703,7 +1705,7 @@ const App = struct {
             );
         } else {
             self.model_cache.startWarmup(
-                builtin_gateway.model_catalog_provider,
+                selectedGatewayProvider().model_catalog,
                 self.auth.modelCatalogAccess(),
             );
         }
@@ -3189,18 +3191,95 @@ test "native app preserves the built-in tool set without workspace metadata" {
     try std.testing.expectEqual(builtin_tools.advertisement_set.order.len, advertised.order.len);
 }
 
+var codex_selection: ?bool = null;
+
+/// True when this run should talk to Codex instead of the AI Gateway.
+///
+/// Selection is additive: without an explicit opt-in the binary behaves exactly
+/// like upstream, so the Gateway path stays the default and stays tested.
+/// Resolved once, because the entry config reads it several times and it
+/// touches the settings file.
+fn codexSelected() bool {
+    if (codex_selection) |value| return value;
+    const value = resolveCodexSelection();
+    codex_selection = value;
+    return value;
+}
+
+fn resolveCodexSelection() bool {
+    if (io_mod.getenv("FX_PROVIDER")) |raw| {
+        const value = std.mem.trim(u8, raw, " \t\r\n");
+        if (std.ascii.eqlIgnoreCase(value, "codex")) return true;
+        if (std.ascii.eqlIgnoreCase(value, "gateway")) return false;
+    }
+    // Pinning credential_source to the Codex login also selects its provider:
+    // the token is not a Gateway credential, so the two cannot be mixed.
+    //
+    // The profile settings file is read directly rather than through the merged
+    // loader, because merging needs a workspace root and this runs before one is
+    // resolved. credential_source is profile-owned anyway: project .fx.json
+    // values for it are discarded before parsing, so there is nothing to merge.
+    return profileCredentialSourceIsCodex();
+}
+
+fn profileCredentialSourceIsCodex() bool {
+    const alloc = std.heap.c_allocator;
+    const home = io_mod.getenv("HOME") orelse return false;
+
+    var home_dir = std.Io.Dir.openDirAbsolute(io_mod.getIo(), home, .{ .iterate = true }) catch
+        return false;
+    defer home_dir.close(io_mod.getIo());
+
+    var fx_dir = home_dir.openDir(io_mod.getIo(), profile_paths.root_dir_name, .{
+        .iterate = true,
+        .follow_symlinks = false,
+    }) catch return false;
+    defer fx_dir.close(io_mod.getIo());
+
+    var file = fx_dir.openFile(io_mod.getIo(), "settings.json", .{
+        .mode = .read_only,
+        .allow_directory = false,
+        .resolve_beneath = true,
+    }) catch return false;
+    defer file.close(io_mod.getIo());
+
+    const bytes = io_mod.readFileToEnd(alloc, &file, 1024 * 1024) catch return false;
+    defer alloc.free(bytes);
+
+    var parsed = std.json.parseFromSlice(std.json.Value, alloc, bytes, .{}) catch return false;
+    defer parsed.deinit();
+    if (parsed.value != .object) return false;
+
+    const value = parsed.value.object.get("credential_source") orelse return false;
+    if (value != .string) return false;
+    const source = types.parseCredentialSource(value.string) orelse return false;
+    return source == .codex_oauth;
+}
+
+fn selectedGatewayProvider() gateway_provider.Provider {
+    return if (codexSelected()) codex_provider.provider else builtin_gateway.provider;
+}
+
+fn selectedDefaultModel() []const u8 {
+    return if (codexSelected()) codex_provider.default_model else builtin_gateway.default_model;
+}
+
+fn selectedChatUrl() []const u8 {
+    return if (codexSelected()) codex_provider.chatUrl() else builtin_gateway.default_chat_url;
+}
+
 fn fullEntryConfig() app_entry_runtime.Config {
     return .{
         .version = version,
         .revision = build_options.git_commit,
         .build_channel = compiled_update_channel,
         .command_catalog = builtin_commands.top_level_registry,
-        .default_model = builtin_gateway.default_model,
+        .default_model = selectedDefaultModel(),
         .default_agent_step_limit = default_max_agent_steps,
         .models_path = builtin_gateway.models_path,
         .gateway_retry_count = builtin_gateway.retry_count,
-        .gateway_chat_url = builtin_gateway.default_chat_url,
-        .gateway_provider = builtin_gateway.provider,
+        .gateway_chat_url = selectedChatUrl(),
+        .gateway_provider = selectedGatewayProvider(),
         .background_process_provider = background_process.provider,
         .url_opener = url_opener.native_opener,
         .secret_store = native_host.secret_store,
@@ -3231,12 +3310,12 @@ fn localEntryConfig() app_entry_runtime.Config {
         .revision = build_options.git_commit,
         .build_channel = compiled_update_channel,
         .command_catalog = builtin_commands.top_level_registry,
-        .default_model = builtin_gateway.default_model,
+        .default_model = selectedDefaultModel(),
         .default_agent_step_limit = default_max_agent_steps,
         .models_path = builtin_gateway.models_path,
         .gateway_retry_count = builtin_gateway.retry_count,
-        .gateway_chat_url = builtin_gateway.default_chat_url,
-        .gateway_provider = builtin_gateway.provider,
+        .gateway_chat_url = selectedChatUrl(),
+        .gateway_provider = selectedGatewayProvider(),
         .background_process_provider = background_process.provider,
         .url_opener = url_opener.native_opener,
         .secret_store = native_host.secret_store,
@@ -3271,7 +3350,7 @@ fn emptyEntryConfig() app_entry_runtime.Config {
         .models_path = "",
         .gateway_retry_count = 0,
         .gateway_chat_url = "",
-        .gateway_provider = builtin_gateway.provider,
+        .gateway_provider = selectedGatewayProvider(),
         .background_process_provider = background_process.provider,
         .url_opener = url_opener.native_opener,
         .secret_store = native_host.secret_store,
@@ -3897,4 +3976,14 @@ test {
     _ = @import("core/agent/worker_runtime.zig");
     _ = @import("gateway/client.zig");
     _ = @import("gateway/host_stream_provider.zig");
+    _ = @import("codex/jwt.zig");
+    _ = @import("codex/config.zig");
+    _ = @import("codex/auth.zig");
+    _ = @import("codex/http.zig");
+    _ = @import("codex/build_request.zig");
+    _ = @import("codex/stream.zig");
+    _ = @import("codex/model_catalog.zig");
+    _ = @import("codex/runtime.zig");
+    _ = @import("codex/credits.zig");
+    _ = @import("codex/provider.zig");
 }
