@@ -10,6 +10,7 @@ const cli_replay = @import("cli_replay.zig");
 const codex_auth = @import("../../codex/auth.zig");
 const codex_jwt = @import("../../codex/jwt.zig");
 const codex_login = @import("../../codex/login.zig");
+const codex_settings = @import("../../codex/settings.zig");
 const command_specs = @import("../slash_commands/command_specs.zig");
 const collections = @import("../shared/collections.zig");
 const config_runtime = @import("../config/config_runtime.zig");
@@ -751,7 +752,7 @@ fn runNonInteractiveWithDeps(
         },
         .logout => |rest| {
             if (rest.len == 1 and std.mem.eql(u8, rest[0], "--codex")) {
-                return runCodexLogout(deps);
+                return runCodexLogout(alloc, deps);
             }
             if (rest.len != 0) {
                 try writeStderr(deps, "usage: fx logout [--codex]\n");
@@ -1453,14 +1454,24 @@ fn runCodexLogin(alloc: Allocator, cfg: Config, deps: RunDeps) !RunResult {
         defer alloc.free(line);
         try writeStdout(deps, line);
     }
-    try writeStdout(
-        deps,
-        "Set \"credential_source\": \"codex_oauth\" in ~/.fx/settings.json to use it.\n",
-    );
+
+    // Select the source as part of signing in. Unlike fx login, this cannot
+    // fall out of plain precedence: a Codex token is not a Gateway credential,
+    // so it only takes effect once it is chosen explicitly. Leaving that to the
+    // user means a successful login that changes nothing.
+    _ = config_runtime.setUserPreferences(alloc, .{ .credential_source = .codex_oauth }) catch {
+        try writeStderr(
+            deps,
+            "fx login --codex: signed in, but could not update ~/.fx/settings.json.\n" ++
+                "Set \"credential_source\": \"codex_oauth\" there to use it.\n",
+        );
+        return .handled_failure;
+    };
+    try writeStdout(deps, "fx is now using Codex. Run fx logout --codex to switch back.\n");
     return .handled_success;
 }
 
-fn runCodexLogout(deps: RunDeps) !RunResult {
+fn runCodexLogout(alloc: Allocator, deps: RunDeps) !RunResult {
     var mutation = codex_auth.beginMutation() catch {
         try writeStderr(deps, "fx logout --codex: could not open the profile directory\n");
         return .handled_failure;
@@ -1471,8 +1482,21 @@ fn runCodexLogout(deps: RunDeps) !RunResult {
         try writeStderr(deps, "fx logout --codex: failed to remove the stored credential\n");
         return .handled_failure;
     };
+
+    // Stop pointing fx at a credential that no longer exists. Clearing the key
+    // returns resolution to plain precedence, which lands back on fx login.
+    if (codex_settings.codexSelectedInProfile()) {
+        _ = config_runtime.setUserPreferences(alloc, .{ .clear_credential_source = true }) catch {
+            try writeStderr(
+                deps,
+                "fx logout --codex: removed the credential, but ~/.fx/settings.json still selects it.\n",
+            );
+            return .handled_failure;
+        };
+    }
+
     try writeStdout(deps, switch (outcome) {
-        .deleted, .deleted_not_durable => "Removed the stored Codex credential.\n",
+        .deleted, .deleted_not_durable => "Removed the stored Codex credential. fx is back on the AI Gateway.\n",
         .missing => "No stored Codex credential.\n",
     });
     return .handled_success;
