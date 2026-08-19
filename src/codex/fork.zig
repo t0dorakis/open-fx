@@ -3,8 +3,8 @@
 const std = @import("std");
 
 /// Marks the version as a fork of the upstream release it precedes, so
-/// "0.0.3-codex.1" reads as the first fork build on top of upstream 0.0.3.
-pub const version_marker = "-codex";
+/// "0.0.3-openfx.1" reads as the first fork build on top of upstream 0.0.3.
+pub const version_marker = "-openfx";
 
 /// Upstream's release feed only ever serves upstream binaries. Installing one
 /// would replace this fork with stock fx and silently take the Codex provider
@@ -19,8 +19,8 @@ pub fn isForkBuild(version: []const u8) bool {
 }
 
 test isForkBuild {
-    try std.testing.expect(isForkBuild("0.0.3-codex"));
-    try std.testing.expect(isForkBuild("0.0.3-codex.1"));
+    try std.testing.expect(isForkBuild("0.0.3-openfx"));
+    try std.testing.expect(isForkBuild("0.0.3-openfx.1"));
     try std.testing.expect(!isForkBuild("0.0.3"));
     try std.testing.expect(!isForkBuild("0.0.4"));
 }

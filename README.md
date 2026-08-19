@@ -1,4 +1,4 @@
-# fx-codex
+# open-fx
 
 A fork of [vercel-labs/fx](https://github.com/vercel-labs/fx) that runs the agent on a
 **ChatGPT/Codex subscription** instead of the Vercel AI Gateway.
@@ -25,12 +25,12 @@ If that is not a trade you want to make, use upstream fx. It is the better-suppo
 Requires [Zig 0.16.0+](https://ziglang.org/download/):
 
 ```bash
-git clone https://github.com/t0dorakis/fx.git fx-codex
-cd fx-codex
+git clone https://github.com/t0dorakis/open-fx.git
+cd open-fx
 zig build -Doptimize=ReleaseSafe
 ```
 
-Prebuilt binaries are attached to [releases](https://github.com/t0dorakis/fx/releases). They are
+Prebuilt binaries are attached to [releases](https://github.com/t0dorakis/open-fx/releases). They are
 unsigned, so macOS quarantines them on download:
 
 ```bash
@@ -104,7 +104,7 @@ It is bounded at 512 entries.
 
 ### Automatic upgrades are disabled
 
-The fork reports its version as `0.0.3-codex.N`, and any build carrying that marker refuses both
+The fork reports its version as `0.0.3-openfx.N`, and any build carrying that marker refuses both
 background auto-upgrade and `fx upgrade`. Upstream's release feed serves upstream binaries, and
 installing one would silently replace this fork with stock fx and remove Codex support. Update by
 rebuilding from source.

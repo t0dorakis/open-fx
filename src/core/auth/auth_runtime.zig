@@ -1,4 +1,4 @@
-// Modified from vercel-labs/fx (Apache-2.0) by the fx-codex fork:
+// Modified from vercel-labs/fx (Apache-2.0) by the open-fx fork:
 // lists codex_oauth in credential_source_order, with a
 // comptime guard that the list stays exhaustive.
 
