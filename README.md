@@ -104,10 +104,10 @@ It is bounded at 512 entries.
 
 ### Automatic upgrades are disabled
 
-The fork reports its version as `0.0.3-openfx.N`, and any build carrying that marker refuses both
-background auto-upgrade and `fx upgrade`. Upstream's release feed serves upstream binaries, and
-installing one would silently replace this fork with stock fx and remove Codex support. Update by
-rebuilding from source.
+The fork's version carries an `-openfx` marker after the upstream release it is built on, and any
+build carrying that marker refuses both background auto-upgrade and `fx upgrade`. Upstream's release
+feed serves upstream binaries, and installing one would silently replace this fork with stock fx and
+remove Codex support. Update by rebuilding from source.
 
 ## Staying current with upstream
 
